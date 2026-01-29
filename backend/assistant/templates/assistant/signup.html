@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - ThingOne</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { 
+            background: radial-gradient(circle at center, #1a1033 0%, #0a0a0a 100%); 
+            color: white; 
+            min-height: 100vh; 
+            margin: 0; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            font-family: 'Inter', sans-serif; 
+        }
+        .logo { width: 55px; height: 55px; background: linear-gradient(135deg, #3d5afe, #7c4dff); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; margin-bottom: 20px; }
+        .card { 
+            background: #161616; 
+            padding: 40px; 
+            border-radius: 24px; 
+            width: 400px; 
+            border: 1px solid #2a2a2a; 
+            text-align: center; 
+            box-sizing: border-box;
+        }
+        .input-group { text-align: left; margin-bottom: 15px; position: relative; }
+        label { font-size: 11px; color: #a0a0a0; font-weight: bold; display: block; margin-bottom: 8px; text-transform: uppercase; }
+        
+        /* 👁️ Password Container */
+        .password-container { position: relative; width: 100%; }
+        
+        input { width: 100%; background: #000; border: 1px solid #2a2a2a; padding: 14px; border-radius: 12px; color: white; box-sizing: border-box; outline: none; transition: 0.3s; }
+        input:focus { border-color: #7c4dff; }
+        
+        .toggle-password {
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #9ca3af;
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        .btn-primary { width: 100%; padding: 14px; background: linear-gradient(to right, #3d5afe, #7c4dff); border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer; font-size: 16px; margin-top: 10px; }
+        .error-msg { color: #ff4d4d; font-size: 13px; margin-bottom: 15px; text-align: left; padding: 10px; background: rgba(255, 77, 77, 0.1); border-radius: 8px; }
+
+        /* 📱 MOBILE RESPONSIVE CSS */
+        @media (max-width: 480px) {
+            .card {
+                width: 92%;
+                padding: 30px 20px;
+                border-radius: 20px;
+            }
+            .logo { margin-top: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="logo"><i class="fas fa-wand-magic-sparkles"></i></div>
+    <div class="card">
+        <h2>Create Account</h2>
+        <p style="color:#a0a0a0; font-size:14px; margin-bottom:30px;">Start your journey with ThingOne AI</p>
+        
+        <form method="POST">
+            {% csrf_token %}
+
+            {% if error %}
+                <div class="error-msg">
+                    <i class="fas fa-exclamation-circle"></i> {{ error }}
+                </div>
+            {% endif %}
+
+            <div class="input-group">
+                <label>FULL NAME</label>
+                <input name="name" type="text" placeholder="John Doe" required>
+            </div>
+
+            <div class="input-group">
+                <label>EMAIL ADDRESS</label>
+                <input name="email" type="email" placeholder="name@example.com" required>
+            </div>
+
+            <div class="input-group">
+                <label>PASSWORD</label>
+                <div class="password-container">
+                    <input name="password" id="password" type="password" placeholder="Create password" required>
+                    <i class="fas fa-eye toggle-password" id="togglePassword"></i>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-primary">Sign Up</button>
+        </form>
+        <p style="margin-top:20px; font-size:14px; color:#a0a0a0;">
+            Already have an account? <a href="/login/" style="color:#3d5afe; text-decoration:none; font-weight: bold;">Log in</a>
+        </p>
+    </div>
+
+    <script>
+        // 👁️ Toggle Password Visibility
+        const passwordInput = document.getElementById('password');
+        const toggleIcon = document.getElementById('togglePassword');
+
+        toggleIcon.addEventListener('click', function() {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+            this.classList.toggle('fa-eye');
+            this.classList.toggle('fa-eye-slash');
+        });
+    </script>
+</body>
+</html>

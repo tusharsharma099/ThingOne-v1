@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - ThingOne</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { 
+            background: radial-gradient(circle at center, #1a1033 0%, #0a0a0a 100%); 
+            color: white; 
+            height: 100vh; 
+            margin: 0; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-family: 'Inter', sans-serif; 
+        }
+        .card { 
+            background: #161616; 
+            padding: 45px; 
+            border-radius: 28px; 
+            width: 380px; 
+            border: 1px solid #2a2a2a; 
+            text-align: center; 
+            box-sizing: border-box;
+        }
+        .logo { width: 55px; height: 55px; background: linear-gradient(135deg, #3d5afe, #7c4dff); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 25px; }
+        .input-group { text-align: left; margin-bottom: 20px; position: relative; }
+        label { font-size: 11px; color: #a0a0a0; font-weight: bold; display: block; margin-bottom: 8px; text-transform: uppercase; }
+        
+        /* 👁️ Password View Container */
+        .password-container { position: relative; width: 100%; }
+        
+        input { width: 100%; background: #000; border: 1px solid #2a2a2a; padding: 14px; border-radius: 12px; color: white; box-sizing: border-box; outline: none; transition: 0.3s; }
+        input:focus { border-color: #3d5afe; }
+        
+        /* 👁️ Eye Icon Style */
+        .toggle-password {
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #9ca3af;
+            cursor: pointer;
+            z-index: 10;
+            transition: 0.2s;
+        }
+        .toggle-password:hover { color: white; }
+
+        button { width: 100%; padding: 15px; background: linear-gradient(to right, #3d5afe, #7c4dff); border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer; font-size: 16px; margin-top: 10px; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .error-msg { color: #ff4d4d; font-size: 13px; margin-bottom: 15px; text-align: left; display: none; padding: 10px; background: rgba(255, 77, 77, 0.1); border-radius: 8px; }
+
+        /* 📱 MOBILE RESPONSIVE CSS */
+        @media (max-width: 480px) {
+            .card {
+                width: 90%;
+                padding: 30px 20px;
+                border-radius: 20px;
+            }
+            h2 { font-size: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo"><i class="fas fa-wand-magic-sparkles"></i></div>
+        <h2>Welcome to ThingOne 🤖</h2>
+        <p style="color: #9ca3af; font-size: 14px; margin-bottom: 30px;">Your intelligent AI voice assistant</p>
+        
+        <form id="loginForm">
+            {% csrf_token %}
+            <div id="errorMessage" class="error-msg"></div>
+            
+            <div class="input-group">
+                <label>Email Address</label>
+                <input type="email" id="email" placeholder="name@example.com" required>
+            </div>
+            
+            <div class="input-group">
+                <label>Password</label>
+                <div class="password-container">
+                    <input type="password" id="password" placeholder="••••••••" required>
+                    <i class="fas fa-eye toggle-password" id="togglePasswordIcon"></i>
+                </div>
+            </div>
+            
+            <button type="submit" id="submitBtn">Continue</button>
+        </form>
+        
+        <p style="margin-top: 25px; font-size: 14px; color: #9ca3af;">Don't have an account? <a href="{% url 'signup' %}" style="color: #3d5afe; text-decoration: none; font-weight: bold;">Sign up</a></p>
+    </div>
+
+    <script>
+        // 👁️ Password Toggle Logic
+        const togglePassword = document.getElementById('togglePasswordIcon');
+        const passwordInput = document.getElementById('password');
+
+        togglePassword.addEventListener('click', function() {
+            // Toggle input type
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+            
+            // Toggle icon classes
+            this.classList.toggle('fa-eye');
+            this.classList.toggle('fa-eye-slash');
+        });
+
+        // 🚀 Authentication Logic (Untouched)
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorMessage');
+            const btn = document.getElementById('submitBtn');
+
+            errorDiv.style.display = 'none';
+            btn.innerText = "Authenticating...";
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/jwt/login/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    localStorage.setItem("access_token", data.access);
+                    localStorage.setItem("refresh_token", data.refresh);
+                    
+                    const displayName = data.username || data.email.split('@')[0];
+                    localStorage.setItem("user_display_name", displayName);
+                    
+                    setTimeout(() => {
+                        window.location.href = "{% url 'home' %}";
+                    }, 300);
+                } else {
+                    errorDiv.innerText = data.error || "Invalid email or password";
+                    errorDiv.style.display = 'block';
+                    btn.innerText = "Continue";
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                errorDiv.innerText = "Connection error. Is the server running?";
+                errorDiv.style.display = 'block';
+                btn.innerText = "Continue";
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
