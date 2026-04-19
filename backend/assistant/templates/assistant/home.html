@@ -61,10 +61,16 @@
         .user { background: linear-gradient(135deg, #3d5afe, #7c4dff); color: white; border-bottom-right-radius: 4px; }
         .bot { background: #1a1a1a; border: 1px solid var(--border-color); border-bottom-left-radius: 4px; }
         
+        .cursor-blink { animation: blink 0.8s step-end infinite; font-weight: bold; margin-left: 2px;}
+        @keyframes blink { 50% { opacity: 0; } }
+        
         .input-container { padding: 20px 80px 40px; }
         .input-wrapper { background: #161616; border: 1px solid var(--border-color); border-radius: 16px; padding: 8px 16px; display: flex; align-items: center; gap: 12px; }
         input { flex: 1; background: none; border: none; color: white; outline: none; font-size: 15px; }
-        .btn-circle { background: var(--accent-blue); color: white; border: none; width: 40px; height: 40px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .btn-circle { background: var(--accent-blue); color: white; border: none; width: 40px; height: 40px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: var(--transition); }
+        
+        @keyframes pulseRed { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        .recording { background: #ef4444 !important; color: white !important; animation: pulseRed 1.5s infinite; border-color: #ef4444 !important; }
         
         .thinking-container { display: flex; align-items: center; gap: 12px; padding: 10px; }
         .thinking-logo { width: 25px; height: 25px; border-radius: 50%; background: url("{% static 'images/thingone-logo.jpeg' %}") no-repeat center; background-size: cover; animation: pulse-glow 1.5s infinite ease-in-out; }
@@ -152,6 +158,10 @@
         let currentChatId = null;
         let hindiFemaleVoice = null;
         let isVoiceModeOn = false;
+        
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
 
         if (!token) { window.location.href = "/login/"; }
 
@@ -202,6 +212,65 @@
             box.scrollTop = box.scrollHeight;
         }
 
+        async function startVoice() {
+            const micBtn = document.getElementById("micBtn");
+            
+            if (isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                micBtn.classList.remove("recording");
+                return;
+            }
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = e => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const formData = new FormData();
+                    formData.append("audio", audioBlob, "voice.webm");
+                    
+                    micBtn.innerHTML = "<i class='fas fa-spinner fa-spin'></i>";
+                    
+                    try {
+                        const res = await fetch("/api/transcribe/", {
+                            method: "POST",
+                            headers: { "Authorization": "Bearer " + token },
+                            body: formData
+                        });
+                        
+                        const data = await res.json();
+                        if (data.transcript) {
+                            const input = document.getElementById("msg");
+                            input.value = data.transcript;
+                            sendMessage(); 
+                        } else if (data.error) {
+                            alert("Transcription error: " + data.error);
+                        }
+                    } catch(e) {
+                        alert("Could not transcribe, please try again");
+                    }
+                    
+                    micBtn.innerHTML = "<i class='fas fa-microphone'></i>";
+                    stream.getTracks().forEach(track => track.stop()); // Clean up mic
+                };
+                
+                mediaRecorder.start();
+                isRecording = true;
+                micBtn.classList.add("recording");
+                
+            } catch(err) {
+                console.error(err);
+                alert("Microphone access is needed for voice input");
+            }
+        }
+
         async function sendMessage() {
             const input = document.getElementById("msg");
             const text = input.value.trim();
@@ -217,18 +286,79 @@
             messagesDiv.appendChild(loader);
 
             try {
-                const res = await fetch("/api/ask/", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-                    body: JSON.stringify({ message: text, chat_id: currentChatId })
+                const res = await fetch(`/api/ask/stream/?message=${encodeURIComponent(text)}&chat_id=${currentChatId || ""}`, {
+                    method: "GET",
+                    headers: { "Authorization": "Bearer " + token }
                 });
-                const data = await res.json();
-                loader.remove();
-                currentChatId = data.chat_id;
-                appendMessage('bot', data.reply);
-                speak(data.reply);
-                loadChats();
-            } catch (err) { loader.innerText = "Error!"; }
+
+                loader.remove(); // Remove thinking loader
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+
+                // Create a container for the streaming bot message
+                const wrapper = document.createElement("div");
+                wrapper.className = "message-wrapper bot-wrapper";
+                const botMessage = document.createElement("div");
+                botMessage.className = "message bot";
+                
+                const textSpan = document.createElement("span");
+                const cursorSpan = document.createElement("span");
+                cursorSpan.className = "cursor-blink";
+                cursorSpan.innerText = "|";
+                
+                botMessage.appendChild(textSpan);
+                botMessage.appendChild(cursorSpan);
+                wrapper.appendChild(botMessage);
+                messagesDiv.appendChild(wrapper);
+
+                let fullReply = "";
+
+                // Stream loop
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split("\n\n"); // SSE is separated by double newlines
+
+                    for (const line of lines) {
+                        if (line.startsWith("data: ")) {
+                            try {
+                                const dataStr = line.substring(6).trim();
+                                if (!dataStr) continue;
+                                const data = JSON.parse(dataStr);
+
+                                if (data.chat_id) {
+                                    currentChatId = data.chat_id;
+                                    loadChats(); // Update sidebar silently
+                                }
+                                if (data.token) {
+                                    fullReply += data.token;
+                                    // Make HTML safe, preserve newlines as breaks
+                                    textSpan.innerHTML = fullReply
+                                        .replace(/&/g, "&amp;")
+                                        .replace(/</g, "&lt;")
+                                        .replace(/>/g, "&gt;")
+                                        .replace(/\n/g, "<br>");
+                                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                                }
+                                if (data.error) {
+                                    textSpan.innerHTML += `<br><span style='color: #ef4444'>[Error: ${data.error}]</span>`;
+                                }
+                            } catch (err) {
+                                console.error("Parse Error matching chunk:", line);
+                            }
+                        }
+                    }
+                }
+                
+                // Done streaming
+                cursorSpan.remove(); // Remove blinking cursor
+                speak(fullReply);
+                
+            } catch (err) { 
+                loader.innerText = "Connection Error!"; 
+            }
         }
 
         async function loadChats() {

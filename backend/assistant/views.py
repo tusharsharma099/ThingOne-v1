@@ -1,5 +1,5 @@
 from django.shortcuts import render, redirect
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
@@ -16,9 +16,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 # AI Engine Import (Strict gpt-4o-mini function)
 # Note: Agar ai-engine.py file 'assistant' folder ke bahar hai toh '.ai_engine' use karein
 try:
-    from .ai_engine import ask_ai 
+    from .ai_engine import ask_ai, ask_ai_stream, client
 except ImportError:
-    from assistant.ai_engine import ask_ai
+    from assistant.ai_engine import ask_ai, ask_ai_stream, client
 
 from assistant.mongo import (
     create_new_chat,
@@ -165,6 +165,71 @@ def ask_api(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def ask_api_stream(request):
+    """
+    SSE Streaming Endpoint matching ask_api logic but yielding parts word by word.
+    """
+    message = request.GET.get("message", "").strip()
+    chat_id = request.GET.get("chat_id", "")
+    user_id = request.user.id
+    user_email = request.user.email
+
+    admin_email = "tusharsharma0991@gmail.com"
+    if user_email != admin_email:
+        current_count = get_message_count(user_id)
+        if current_count >= 10:
+            def limit_error():
+                yield f"data: {json.dumps({'error': 'LIMIT_REACHED'})}\n\n"
+            return StreamingHttpResponse(limit_error(), content_type="text/event-stream")
+
+    if not message:
+        def msg_error():
+            yield f"data: {json.dumps({'error': 'Message required'})}\n\n"
+        return StreamingHttpResponse(msg_error(), content_type="text/event-stream")
+
+    if not chat_id or chat_id == "null":
+        chat_id = create_new_chat(user_id, message)
+
+    history = get_chat_messages(user_id, chat_id)
+    
+    messages_payload = [
+        {"role": "system", "content": "You are a helpful AI assistant named ThingOne. Provide clear and concise answers."}
+    ]
+    
+    for m in history[-5:]:
+        messages_payload.append({"role": m['role'], "content": m['content']})
+        
+    messages_payload.append({"role": "user", "content": message})
+
+    add_message(user_id, chat_id, "user", message)
+    increment_message_count(user_id)
+
+    def event_stream():
+        # First event to send back the chat_id
+        yield f"data: {json.dumps({'chat_id': chat_id})}\n\n"
+        
+        full_reply = ""
+        try:
+            for token in ask_ai_stream(messages_payload):
+                if token:
+                    full_reply += token
+                    # Send token inside json to safely escape newlines
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+        except Exception as e:
+            print(f"STREAM ITERATION ERROR: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            
+        # Streaming complete, save bot reply
+        if full_reply:
+            add_message(user_id, chat_id, "assistant", full_reply)
+            
+        yield f"data: {json.dumps({'done': True})}\n\n"
+
+    return StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def get_user_details(request):
     return Response({
         "username": request.user.username,
@@ -195,3 +260,25 @@ def chat_messages_api(request, chat_id):
 def delete_chat_api(request, chat_id):
     delete_chat(request.user.id, chat_id)
     return Response({"success": True})
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def transcribe_api(request):
+    """
+    Accepts an audio file and returns its transcript using OpenAI Whisper.
+    """
+    if 'audio' not in request.FILES:
+        return Response({"error": "No audio file provided"}, status=400)
+    
+    audio_file = request.FILES['audio']
+    
+    try:
+        # Pass the file directly to Whisper API
+        transcript_res = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file
+        )
+        return Response({"transcript": transcript_res.text})
+    except Exception as e:
+        print(f"WHISPER Transcription Error: {e}")
+        return Response({"error": str(e)}, status=500)

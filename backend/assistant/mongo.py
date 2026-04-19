@@ -15,9 +15,68 @@ MONGO_URI = os.getenv("MONGO_URI")
 
 if not MONGO_URI:
     raise Exception("MONGO_URI not found in environment variables")
+try:
+    # attempt to connect (short timeout) to fail fast in dev
+    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    client.admin.command("ping")
+    db = client["thingone"]
+except Exception as e:
+    import warnings
+    warnings.warn(f"Could not connect to MongoDB ({e}); using in-memory fallback.")
 
-client = MongoClient(MONGO_URI)
-db = client["thingone"]
+    class InMemoryCollection:
+        def __init__(self):
+            self._data = []
+
+        def insert_one(self, doc):
+            self._data.append(doc.copy())
+
+        def update_one(self, q, u, upsert=False):
+            for doc in self._data:
+                if all(doc.get(k) == v for k, v in q.items()):
+                    if "$push" in u:
+                        for field, val in u["$push"].items():
+                            doc.setdefault(field, []).append(val)
+                    if "$inc" in u:
+                        for field, val in u["$inc"].items():
+                            doc[field] = doc.get(field, 0) + val
+                    return
+            if upsert:
+                new = q.copy()
+                if "$push" in u:
+                    for field, val in u["$push"].items():
+                        new[field] = [val]
+                if "$inc" in u:
+                    for field, val in u["$inc"].items():
+                        new[field] = val
+                self._data.append(new)
+
+        def find(self, q, proj=None):
+            for doc in self._data:
+                if all(doc.get(k) == v for k, v in q.items()):
+                    yield doc.copy()
+
+        def find_one(self, q, proj=None):
+            for doc in self._data:
+                if all(doc.get(k) == v for k, v in q.items()):
+                    return doc.copy()
+
+        def delete_one(self, q):
+            for i, doc in enumerate(self._data):
+                if all(doc.get(k) == v for k, v in q.items()):
+                    self._data.pop(i)
+                    return
+
+        def delete_many(self, q):
+            self._data = [d for d in self._data if not all(d.get(k) == v for k, v in q.items())]
+
+    class InMemoryDB:
+        def __init__(self):
+            self.chats = InMemoryCollection()
+            self.user_stats = InMemoryCollection()
+
+    db = InMemoryDB()
+    client = None
 
 # =====================================================
 # CHAT HISTORY HELPERS

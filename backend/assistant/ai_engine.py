@@ -40,6 +40,23 @@ def ask_ai(prompt: str) -> str:
         return f"Error: {str(e)}"
 
 # Direct run karke check karne ke liye
+def ask_ai_stream(messages: list):
+    print(f"\n[DEBUG] Streaming Request bheji ja rahi hai... Items in History: {len(messages)}")
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            stream=True,
+            timeout=15.0
+        )
+        # Yield tokens one by one
+        for chunk in response:
+            if chunk.choices[0].delta.content is not None:
+                yield chunk.choices[0].delta.content
+    except Exception as e:
+        print(f"[DEBUG] STREAM API CALL FAILED: {str(e)}")
+        yield f"Error: {str(e)}"
+
 if __name__ == "__main__":
     print("--- Starting AI Engine Test ---")
     res = ask_ai("Bhai, kya tum gpt-4o-mini ho?")

@@ -13,7 +13,9 @@ urlpatterns = [
     path("api/jwt/login/", views.JWTLogin.as_view(), name="jwt-login"),
 
     # Chat API Endpoints
+    path("api/transcribe/", views.transcribe_api),
     path("api/ask/", views.ask_api),
+    path("api/ask/stream/", views.ask_api_stream),
     path("api/chats/", views.user_chats_api),
     path("api/chat/<str:chat_id>/", views.chat_messages_api),
     path("api/chat/<str:chat_id>/delete/", views.delete_chat_api),
